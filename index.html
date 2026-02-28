@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>HSK5 Learning App</title>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg,#ff758c,#ff7eb3);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    margin:0;
+}
+
+.container{
+    background:white;
+    width:750px;
+    padding:30px;
+    border-radius:20px;
+    box-shadow:0 10px 30px rgba(0,0,0,0.2);
+    text-align:center;
+}
+
+button{
+    padding:8px 16px;
+    margin:6px;
+    border:none;
+    border-radius:8px;
+    cursor:pointer;
+    background:#ff4f81;
+    color:white;
+    font-weight:bold;
+}
+
+button:hover{ opacity:0.8; }
+
+input{
+    padding:10px;
+    width:85%;
+    margin:10px 0;
+    border-radius:10px;
+    border:1px solid #ccc;
+    font-size:16px;
+}
+
+.question{
+    font-size:30px;
+    margin:20px 0;
+}
+
+.result{
+    font-weight:bold;
+    margin-top:15px;
+    font-size:18px;
+}
+
+.list-container{
+    max-height:400px;
+    overflow-y:auto;
+    text-align:left;
+    margin-top:10px;
+    border-top:1px solid #ddd;
+    padding-top:10px;
+}
+
+.list-item{
+    padding:8px;
+    border-bottom:1px solid #eee;
+}
+
+.remove-btn{
+    background:#999;
+    margin-left:10px;
+    font-size:12px;
+    padding:4px 8px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+<h2>HSK5 Practice</h2>
+
+<div id="menu">
+    <button onclick="startMode(1,false)">Nhận mặt chữ</button>
+    <button onclick="startMode(2,false)">Việt → Trung</button>
+    <button onclick="startWrongQuiz()">🔥 Quiz từ sai</button>
+    <button onclick="showList()">Danh sách từ vựng</button>
+    <button onclick="showWrongList()">⭐ Ôn lại từ sai</button>
+</div>
+
+<div id="quiz" style="display:none;">
+
+    <!-- Session Progress -->
+    <div style="margin-bottom:15px;">
+        <div id="progressText">Tiến độ: 0 / 0 | 0%</div>
+        <div style="background:#eee;height:15px;border-radius:10px;overflow:hidden;">
+            <div id="progressBar" style="height:100%;width:0%;background:#4caf50;"></div>
+        </div>
+    </div>
+
+    <!-- Vocab Progress -->
+    <div style="margin-bottom:20px;">
+        <div id="vocabStatText">📊 Đã thuộc: 0 / 0 | 0%</div>
+        <div style="background:#eee;height:12px;border-radius:10px;overflow:hidden;">
+            <div id="vocabStatBar" style="height:100%;width:0%;background:#2196f3;"></div>
+        </div>
+    </div>
+
+    <div class="question" id="question"></div>
+    <div id="inputArea"></div>
+
+    <button onclick="checkAnswer()">Kiểm tra</button>
+    <button onclick="previousQuestion()">Previous</button>
+    <button onclick="nextQuestion()">Next</button>
+    <button onclick="goBack()">Menu</button>
+
+    <div class="result" id="result"></div>
+</div>
+
+<div id="listMode" style="display:none;">
+    <button onclick="goBack()">Menu</button>
+
+    <input type="text" id="searchInput"
+           placeholder="🔎 Tìm theo tiếng Trung, pinyin hoặc nghĩa..."
+           onkeyup="searchVocab()">
+
+    <div class="list-container" id="listContainer"></div>
+</div>
+
+</div>
+
+<script>
+
+let vocab = [];
+let current = {};
+let mode = 1;
+let quizWrongOnly = false;
+
+let history = [];
+let historyIndex = -1;
+
+let wrongWords = JSON.parse(localStorage.getItem("wrongWords")) || [];
+let learnedWords = JSON.parse(localStorage.getItem("learnedWords")) || [];
+
+let totalAnswered = 0;
+let totalCorrect = 0;
+
+fetch("hsk5_vocab.json")
+.then(res => res.json())
+.then(data => { 
+    vocab = data;
+    updateVocabStat();
+});
+
+function updateProgress(){
+    let percent = totalAnswered === 0 
+        ? 0 
+        : Math.round((totalCorrect / totalAnswered) * 100);
+
+    document.getElementById("progressText").innerText =
+        `Tiến độ: ${totalCorrect} / ${totalAnswered} | ${percent}%`;
+
+    document.getElementById("progressBar").style.width = percent + "%";
+}
+
+function updateVocabStat(){
+    const total = vocab.length;
+    const learned = learnedWords.length;
+    const percent = total === 0 ? 0 : Math.round((learned / total) * 100);
+
+    document.getElementById("vocabStatText").innerText =
+        `📊 Đã thuộc: ${learned} / ${total} | ${percent}%`;
+
+    document.getElementById("vocabStatBar").style.width = percent + "%";
+}
+
+function startMode(m, wrongOnly){
+    if(vocab.length === 0){
+        alert("Dữ liệu chưa load xong!");
+        return;
+    }
+
+    totalAnswered = 0;
+    totalCorrect = 0;
+    updateProgress();
+
+    history = [];
+    historyIndex = -1;
+
+    mode = m;
+    quizWrongOnly = wrongOnly;
+
+    document.getElementById("menu").style.display="none";
+    document.getElementById("quiz").style.display="block";
+    document.getElementById("listMode").style.display="none";
+
+    loadQuestion();
+}
+
+function startWrongQuiz(){
+    if(wrongWords.length === 0){
+        alert("Chưa có từ sai nào để ôn 🔥");
+        return;
+    }
+
+    totalAnswered = 0;
+    totalCorrect = 0;
+    updateProgress();
+
+    history = [];
+    historyIndex = -1;
+
+    mode = 1;
+    quizWrongOnly = true;
+
+    document.getElementById("menu").style.display="none";
+    document.getElementById("quiz").style.display="block";
+
+    loadQuestion();
+}
+
+function loadQuestion(){
+    document.getElementById("result").innerText="";
+
+    let source = quizWrongOnly ? wrongWords : vocab;
+    const randomItem = source[Math.floor(Math.random()*source.length)];
+
+    history.push(randomItem);
+    historyIndex++;
+
+    current = randomItem;
+    renderQuestion();
+}
+
+function renderQuestion(){
+    const q = document.getElementById("question");
+    const input = document.getElementById("inputArea");
+
+    if(mode===1){
+        q.innerText = current.chinese;
+        input.innerHTML = `
+            <input id="pinyin" placeholder="Nhập pinyin">
+            <input id="meaning" placeholder="Nhập nghĩa tiếng Việt">
+        `;
+    }
+
+    if(mode===2){
+        q.innerText = current.vietnamese;
+        input.innerHTML = `
+            <input id="chinese" placeholder="Nhập tiếng Trung">
+        `;
+    }
+}
+
+function normalizeText(text){
+    return text.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/đ/g,"d")
+        .replace(/y/g,"i")
+        .replace(/\s+/g," ")
+        .trim();
+}
+
+function normalizePinyin(text){
+    return text.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g,"")
+        .replace(/\s+/g," ")
+        .trim();
+}
+
+function saveWrong(word){
+    if(!wrongWords.find(w => w.chinese === word.chinese)){
+        wrongWords.push(word);
+        localStorage.setItem("wrongWords", JSON.stringify(wrongWords));
+    }
+}
+
+function checkAnswer(){
+    const result = document.getElementById("result");
+    let correct = false;
+
+    if(mode===1){
+        const userPinyin = normalizePinyin(document.getElementById("pinyin").value);
+        const userMeaning = normalizeText(document.getElementById("meaning").value);
+
+        const correctPinyin = normalizePinyin(current.pinyin);
+        const correctMeaning = normalizeText(current.vietnamese);
+
+        const meaningMatch = correctMeaning.includes(userMeaning);
+
+        correct = (userPinyin === correctPinyin && meaningMatch);
+    }
+
+    if(mode===2){
+        const userChinese = normalizeText(document.getElementById("chinese").value);
+        const correctChinese = normalizeText(current.chinese);
+        correct = (userChinese === correctChinese);
+    }
+
+    totalAnswered++;
+
+    if(correct){
+        totalCorrect++;
+
+        if(!learnedWords.find(w => w.chinese === current.chinese)){
+            learnedWords.push(current);
+            localStorage.setItem("learnedWords", JSON.stringify(learnedWords));
+        }
+
+        result.innerText=`✅ ${current.chinese} (${current.pinyin}) - ${current.vietnamese}`;
+        result.style.color="green";
+
+    }else{
+        learnedWords = learnedWords.filter(w => w.chinese !== current.chinese);
+        localStorage.setItem("learnedWords", JSON.stringify(learnedWords));
+
+        result.innerText=`❌ ${current.chinese} (${current.pinyin}) - ${current.vietnamese}`;
+        result.style.color="red";
+        saveWrong(current);
+    }
+
+    updateProgress();
+    updateVocabStat();
+}
+
+function nextQuestion(){
+    loadQuestion();
+}
+
+function previousQuestion(){
+    if(historyIndex > 0){
+        historyIndex--;
+        current = history[historyIndex];
+        renderQuestion();
+        document.getElementById("result").innerText="";
+    }
+}
+
+function goBack(){
+    quizWrongOnly = false;
+    document.getElementById("quiz").style.display="none";
+    document.getElementById("listMode").style.display="none";
+    document.getElementById("menu").style.display="block";
+}
+
+function showList(){
+    quizWrongOnly = false;
+    document.getElementById("menu").style.display="none";
+    document.getElementById("quiz").style.display="none";
+    document.getElementById("listMode").style.display="block";
+    renderList(vocab,false);
+}
+
+function showWrongList(){
+    quizWrongOnly = true;
+    document.getElementById("menu").style.display="none";
+    document.getElementById("quiz").style.display="none";
+    document.getElementById("listMode").style.display="block";
+    renderList(wrongWords,true);
+}
+
+function renderList(data,isWrong){
+    const container = document.getElementById("listContainer");
+    container.innerHTML="";
+
+    data.forEach((item,index)=>{
+        const div = document.createElement("div");
+        div.className="list-item";
+        div.innerHTML = `
+            <b>${index+1}. ${item.chinese}</b>
+            (${item.pinyin})
+            - ${item.vietnamese}
+        `;
+        container.appendChild(div);
+    });
+}
+
+function searchVocab(){
+    const keyword = document.getElementById("searchInput").value.toLowerCase();
+    const source = quizWrongOnly ? wrongWords : vocab;
+
+    const filtered = source.filter(item =>
+        item.chinese.includes(keyword) ||
+        item.pinyin.toLowerCase().includes(keyword) ||
+        item.vietnamese.toLowerCase().includes(keyword)
+    );
+
+    renderList(filtered, quizWrongOnly);
+}
+
+</script>
+
+</body>
+</html>
+
+
+
+
+
